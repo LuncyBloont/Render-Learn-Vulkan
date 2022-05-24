@@ -58,5 +58,6 @@
     <None Include="shaders\test.vert">
       <Filter>Resource Files\shaders</Filter>
     </None>
+    <None Include="cpp.hint" />
   </ItemGroup>
 </Project>

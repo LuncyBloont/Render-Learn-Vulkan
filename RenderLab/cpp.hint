@@ -1,0 +1,54 @@
+
+#define TO_COREFUNC(func_name) { func_name, #func_name }
+#define COREFUNC(name) static bool name()
+#define BIND_INIT_CORE(core, func) core->addFunc(TO_COREFUNC(func), Core::Steps::Init)
+#define BIND_RUN_CORE(core, func) core->addFunc(TO_COREFUNC(func), Core::Steps::Run)
+#define BIND_EXIT_CORE(core, func) core->addFunc(TO_COREFUNC(func), Core::Steps::Exit)
+
+#define LOG_D(name, format) printf("\n[debug] %s = " #format " [from %s(...) at %s:%u]\n", #name, name, __FUNCTION__, __FILE__, __LINE__)
+#define LOG_D_FOR(iterator, start, end, ...) do { \
+		printf("\n[debug] each " #iterator " from " #start " to " #end ":\n" ); \
+		for (auto iterator = start; iterator != end; iterator++) {\
+			__VA_ARGS__	\
+		} \
+		printf("\n[from %s(...) at %s:%u]\n", __FUNCTION__, __FILE__, __LINE__); \
+	} while (0)
+#define LOG_P(val, format) printf(#format ", ", val);
+#define ASSERT_LOG_D(logger, value) do { \
+		if (!(value)) { \
+			logger << #value << " FAIL!"; \
+			printf("\n[from %s(...) at %s:%u]\n", __FUNCTION__, __FILE__, __LINE__); \
+		} \
+	} while (0)
+#define ASSERT_LOG_D_RETURN(logger, returnv, value) do { \
+		if (!(value)) { \
+			logger << #value << " FAIL!"; \
+			printf("\n[from %s(...) at %s:%u]\n", __FUNCTION__, __FILE__, __LINE__); \
+			return returnv; \
+		} \
+	} while (0)
+
+#define ASSERT_LOG_D_RUN(logger, value, ...) do { \
+		if (!(value)) { \
+			logger << #value << " FAIL!"; \
+			printf("\n[from %s(...) at %s:%u]\n", __FUNCTION__, __FILE__, __LINE__); \
+			__VA_ARGS__ \
+		} \
+	} while (0)
+
+#define ASSERT_LOG(logger, msg, ...) do { \
+		if (!(__VA_ARGS__)) { \
+			logger << msg; \
+		} \
+	} while (0)
+
+#define ASSERT_LOG_RETURN(logger, msg, returnv, ...) do { \
+		if (!(__VA_ARGS__)) { \
+			logger << msg; \
+			return returnv; \
+		} \
+	} while (0)
+
+#define GLSL_COMPILER "C:\\VulkanSDK\\1.3.204.1\\Bin\\glslangValidator.exe"
+#define SHADER_COMPILE_COMMAND(compiler, input, output) "%s -V %s -o %s", compiler, input, output
+
