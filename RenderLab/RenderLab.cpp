@@ -14,17 +14,16 @@ inline void compilerRequiredShaders() {
 }
 
 int main() {
-
 	Core core;
 	Cat cat;
 
 	uint64_t test = 123;
 	uint32_t arr[16] = { 3, 6, 8, 23, 8 };
 
-	LOG_D(test, % llu);
+	LOG_D(test, %llu);
 
 	LOG_D_FOR(it, arr, arr + 16,
-		LOG_P(*it, % u)
+		LOG_P(*it, %u)
 	);
 
 	ASSERT_LOG_D(core.log.err(), 45 == 3);

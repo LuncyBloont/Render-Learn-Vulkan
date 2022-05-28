@@ -50,6 +50,9 @@
     <ClInclude Include="ShaderCompile.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Uniform.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\test.frag">

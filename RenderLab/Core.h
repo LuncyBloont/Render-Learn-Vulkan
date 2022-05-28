@@ -6,6 +6,7 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include "Log.h"
+#include "Uniform.h"
 
 #define TO_COREFUNC(func_name) { func_name, #func_name }
 #define COREFUNC(name) static bool name()
@@ -62,6 +63,7 @@ public:
 	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 	VkDevice device;
 	VkQueue graphicsQueue;
+	VkQueue transferQueue;
 	VkSurfaceKHR surface;
 	VkQueue presentQueue;
 	VkSwapchainKHR swapchain;
@@ -70,13 +72,22 @@ public:
 	VkExtent2D swapChainExtent;
 	std::vector<VkImageView> swapChainImageViews;
 	VkRenderPass renderPass;
+	VkDescriptorSetLayout descriptorSetLayout;
 	VkPipelineLayout pipelineLayout;
 	VkPipeline graphicsPipeline;
 	std::vector<VkFramebuffer> swapChainFramebuffers;
-	VkCommandPool commandPool;
+	VkCommandPool graphicsCommandPool;
+	VkCommandPool transferCommandPool;
 	std::vector<VkCommandBuffer> commandBuffers;
 	std::vector<VkBuffer> vertexBuffers;
 	std::vector<VkDeviceMemory> vertexBuffersMemory;
+	std::vector<VkBuffer> indexBuffers;
+	std::vector<VkDeviceMemory> indexBuffersMemory;
+	std::vector<VkBuffer> ffUniformBuffers;
+	std::vector<VkDeviceMemory> ffUniformBuffersMemory;
+	std::vector<void*> ffUniformMapping;
+	VkDescriptorPool descriptorPool;
+	std::vector<VkDescriptorSet> descriptorSets;
 };
 
 namespace VKHelper {

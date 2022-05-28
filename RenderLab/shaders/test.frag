@@ -7,14 +7,22 @@ layout (location = 1) in vec4 color;
 
 layout (location = 0) out vec4 fragColor;
 
+layout (binding = 0) uniform _I {
+    vec4 resolution;
+    float time;
+}I;
+
 void mainImage( out vec4 fragColor, in vec2 fragCoord );
 
 vec4 iResolution = vec4(800.0, 600.0, 1.0, 1.0);
 float iTime = 221.54;
 
 void main() {
+    iResolution = I.resolution;
+    iTime = I.time;
+    fragColor = vec4(1.0);
     mainImage(fragColor, (vec2(position.x, -position.y) + 0.5) * iResolution.xy);
-    fragColor *= mix(color, vec4(1.0), 0.6);
+    fragColor *= mix(color, vec4(1.0), 0.9);
 }
 
 /*
@@ -159,6 +167,17 @@ float calSun(in vec3 pos)
     else return 1.0;
 }
 
+vec3 _sky(vec3 ray, vec3 sun) {
+    float _r = atan(ray.x, ray.z);
+    float _u = atan(ray.y, length(ray.xz));
+    float split = clamp(0.5 + 1.5 * pow(abs(_u), 0.8) * sign(_u), 0.0, 1.0);
+    vec2 guv = ray.xz / ray.y * 2.0;
+    vec3 ground = mix(vec3(0.25, 0.31, 0.3), vec3(0.6, 0.58, 0.56),
+        clamp(pow(abs(4.0 * (fract(guv.x) - 0.5) * (fract(guv.y) - 0.5)), 0.1), 0.0, 1.0));
+    return mix(ground * sun, vec3(0.4, 0.5, 0.7), split);
+    return mix(vec3(pow(abs(cos(_r * 5.3)), 0.5) * 0.5 + 0.5, pow(abs(sin(_u * 5.3)), 0.4) * 0.5 + 0.5, 1.0), vec3(0.7), 0.5);
+}
+
 void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
     mater ms[10];
@@ -173,9 +192,9 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     
     float z = rayMarch(eye, ray, MIN_DIS, MAX_STEP);
     vec3 col;
-    vec3 _sky = mix(vec3(cos(ray.x * 4.3) * 0.5 + 0.5, sin(ray.y * 4.3) * 0.5 + 0.5, 1.0), vec3(0.7), 0.5);
+    
     // if (z >= MAX_DIS) col = texture(iChannel0, ray).xyz;
-    if (z >= MAX_DIS) col = _sky;
+    if (z >= MAX_DIS) col = _sky(ray, sunCol);
     else
     {
         
@@ -188,7 +207,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
         col = max(0., dot(sun, -normal)) * sunCol * ms[mid].col * calSun(eye + ray * z);
         
         // if (z2 >= MAX_DIS / 2.) col += texture(iChannel0, ref).xyz * ms[mid].col;
-        if (z2 >= MAX_DIS / 2.) col += _sky * ms[mid].col;
+        if (z2 >= MAX_DIS / 2.) col += _sky(ref, sunCol) * ms[mid].col;
         else
         {
             vec3 normal2 = calNormal(pos + ref * z2);
@@ -196,7 +215,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
             vec3 ref2 = reflect(ref, normal2 + (1. - ms[mid2].smoth) * rand3(pos + ref * z2));
             col += max(0., dot(sun, -normal2)) * sunCol * ms[mid2].col * ms[mid].col * 0.5;
             // col += texture(iChannel0, ref2).xyz * ms[mid2].col * ms[mid].col * 0.5;
-            col += _sky * ms[mid2].col * ms[mid].col * 0.5;
+            col += _sky(ref2, sunCol) * ms[mid2].col * ms[mid].col * 0.5;
         }
         
         

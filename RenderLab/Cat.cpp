@@ -20,6 +20,11 @@ std::vector<DMesh::Vertex> Cat::testMesh = {
     { { -0.8f, 0.8f }, { 0.0f, 1.0f, 0.0f } }
 };
 
+std::vector<DMesh::Index> Cat::testIndex = {
+    0, 1, 2, DMesh::IMAX,
+    2, 3, 0, DMesh::IMAX
+};
+
 void Cat::registSelf(Core* core) {
     this->core = core;
     BIND_INIT_CORE(core, initializeWindow);
@@ -32,10 +37,15 @@ void Cat::registSelf(Core* core) {
     BIND_INIT_CORE(core, createSwapChain);
     BIND_INIT_CORE(core, createImageViews);
     BIND_INIT_CORE(core, createRenderPass);
+    BIND_INIT_CORE(core, createDescriptorSetLayout);
     BIND_INIT_CORE(core, createGraphicsPipeline);
     BIND_INIT_CORE(core, createFramebuffers);
     BIND_INIT_CORE(core, createCommandPool);
     BIND_INIT_CORE(core, createVertexBuffer);
+    BIND_INIT_CORE(core, createIndexBuffer);
+    BIND_INIT_CORE(core, createUniformBuffers);
+    BIND_INIT_CORE(core, createDescriptorPool);
+    BIND_INIT_CORE(core, createDescriptorSets);
     BIND_INIT_CORE(core, createCommandBuffers);
     BIND_INIT_CORE(core, createSyncObjects);
 
@@ -48,7 +58,12 @@ void Cat::registSelf(Core* core) {
     BIND_EXIT_CORE(core, cleanupRenderPass);
     BIND_EXIT_CORE(core, cleanupImageViews);
     BIND_EXIT_CORE(core, cleanupSwapChain);
+    BIND_EXIT_CORE(core, destroyDescriptorSetLayout);
+    BIND_EXIT_CORE(core, cleanupDescriptorSets);
+    BIND_EXIT_CORE(core, destroyDescriptorPool);
+    BIND_EXIT_CORE(core, cleanupUniformBuffers);
     BIND_EXIT_CORE(core, destroyVertexBuffer);
+    BIND_EXIT_CORE(core, destroyIndexBuffer);
     BIND_EXIT_CORE(core, cleanupDevice);
     BIND_EXIT_CORE(core, cleanupSurface);
     BIND_EXIT_CORE(core, disableDebuger);
@@ -83,6 +98,58 @@ void Cat::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
     }
 
     vkBindBufferMemory(core->device, buffer, bufferMemory, 0);
+}
+
+void Cat::copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size) {
+    VkCommandBufferAllocateInfo commandBufferAllocateInfo{};
+    commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    commandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    commandBufferAllocateInfo.commandPool = core->transferCommandPool;
+    commandBufferAllocateInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+    vkAllocateCommandBuffers(core->device, &commandBufferAllocateInfo, &commandBuffer);
+
+    // Start recording this command buffer.
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+    VkBufferCopy copyRegion{};
+    copyRegion.dstOffset = 0;
+    copyRegion.srcOffset = 0;
+    copyRegion.size = size;
+    vkCmdCopyBuffer(commandBuffer, src, dst, 1, &copyRegion);
+
+    vkEndCommandBuffer(commandBuffer);
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    vkQueueSubmit(core->transferQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(core->transferQueue);
+
+    vkFreeCommandBuffers(core->device, core->transferCommandPool, 1, &commandBuffer);
+}
+
+void Cat::updateUniformBuffers() {
+    static auto startTime = std::chrono::high_resolution_clock::now();
+    auto currentTime = std::chrono::high_resolution_clock::now();
+    float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+
+    Uniform::Toy toy{};
+    auto mwin = core->windows[mainWindowID];
+    int wwidth;
+    int wheight;
+    glfwGetWindowSize(mwin, &wwidth, &wheight);
+    toy.resolution = glm::vec4(wwidth, wheight, 1.0, 1.0);
+    toy.time = time;
+
+    memcpy(core->ffUniformMapping[currentFrame], &toy, sizeof(toy));
 }
 
 bool Cat::initializeWindow() {
@@ -374,6 +441,7 @@ bool Cat::createLogicalDevice() {
 
     vkGetDeviceQueue(core->device, indices.graphicsIndice.value(), 0, &core->graphicsQueue);
     vkGetDeviceQueue(core->device, indices.presentIndice.value(), 0, &core->presentQueue);
+    vkGetDeviceQueue(core->device, indices.transferIndice.value(), 0, &core->transferQueue);
 
     return true;
 }
@@ -533,7 +601,7 @@ bool Cat::createGraphicsPipeline() {
     VkPipelineInputAssemblyStateCreateInfo inputAssemblyStateCreateInfo{};
     inputAssemblyStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     inputAssemblyStateCreateInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
-    inputAssemblyStateCreateInfo.primitiveRestartEnable = VK_FALSE;
+    inputAssemblyStateCreateInfo.primitiveRestartEnable = VK_TRUE;
 
     VkViewport viewport{};
     viewport.x = 0;
@@ -595,8 +663,8 @@ bool Cat::createGraphicsPipeline() {
 
     VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{};
     pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutCreateInfo.setLayoutCount = 0;
-    pipelineLayoutCreateInfo.pSetLayouts = nullptr;
+    pipelineLayoutCreateInfo.setLayoutCount = 1;
+    pipelineLayoutCreateInfo.pSetLayouts = &core->descriptorSetLayout;
     pipelineLayoutCreateInfo.pushConstantRangeCount = 0;
     pipelineLayoutCreateInfo.pPushConstantRanges = nullptr;
     if (vkCreatePipelineLayout(core->device, &pipelineLayoutCreateInfo, nullptr, &core->pipelineLayout) !=
@@ -725,20 +793,35 @@ bool Cat::cleanupFramebuffers() {
 
 bool Cat::createCommandPool() {
     QueueFamilyIndices familyIndices = getRequiredQueueFamilyIndices(core->physicalDevice, core->surface);
-    VkCommandPoolCreateInfo commandPoolCreateInfo{};
-    commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    commandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    commandPoolCreateInfo.queueFamilyIndex = familyIndices.graphicsIndice.value();
-    if (vkCreateCommandPool(core->device, &commandPoolCreateInfo, nullptr, &core->commandPool) !=
+
+    // Create Graphics command pool.
+    VkCommandPoolCreateInfo graphicsCommandPoolCreateInfo{};
+    graphicsCommandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    graphicsCommandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    graphicsCommandPoolCreateInfo.queueFamilyIndex = familyIndices.graphicsIndice.value();
+    if (vkCreateCommandPool(core->device, &graphicsCommandPoolCreateInfo, nullptr, &core->graphicsCommandPool) !=
         VK_SUCCESS) {
-        core->log.err() << "Failed to create command pool.";
+        core->log.err() << "Failed to create graphics command pool.";
         return false;
     }
+
+    // Create Transfer command pool.
+    VkCommandPoolCreateInfo transferCommandPoolCreateInfo{};
+    transferCommandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    transferCommandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    transferCommandPoolCreateInfo.queueFamilyIndex = familyIndices.transferIndice.value();
+    if (vkCreateCommandPool(core->device, &transferCommandPoolCreateInfo, nullptr, &core->transferCommandPool) !=
+        VK_SUCCESS) {
+        core->log.err() << "Failed to create transfer command pool.";
+        return false;
+    }
+
     return true;
 }
 
 bool Cat::cleanupCommandPool() {
-    vkDestroyCommandPool(core->device, core->commandPool, nullptr);
+    vkDestroyCommandPool(core->device, core->graphicsCommandPool, nullptr);
+    vkDestroyCommandPool(core->device, core->transferCommandPool, nullptr);
     return true;
 }
 
@@ -747,7 +830,7 @@ bool Cat::createCommandBuffers() {
 
     VkCommandBufferAllocateInfo commandBufferAllocateInfo{};
     commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    commandBufferAllocateInfo.commandPool = core->commandPool;
+    commandBufferAllocateInfo.commandPool = core->graphicsCommandPool;
     commandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     commandBufferAllocateInfo.commandBufferCount = 2;
     if (vkAllocateCommandBuffers(core->device, &commandBufferAllocateInfo, core->commandBuffers.data()) !=
@@ -793,19 +876,29 @@ bool Cat::cleanupSyncObjects() {
 }
 
 bool Cat::createVertexBuffer() {
-    destroyVertexBuffer();
+    VkBuffer stageBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory stageMemory = VK_NULL_HANDLE;
+    VkDeviceSize bufferSize = sizeof(DMesh::Vertex) * testMesh.size();
+    try {
+        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            stageBuffer, stageMemory); 
+        // Host visible and coherent memory that CPU can write data into it.
+    } catch (std::exception err) {
+        core->log.err() << err.what();
+        return false;
+    }
+
+    void* data;
+    vkMapMemory(core->device, stageMemory, 0, bufferSize, 0, &data);
+    memcpy(data, testMesh.data(), bufferSize);
+    vkUnmapMemory(core->device, stageMemory);
 
     VkBuffer buffer = VK_NULL_HANDLE;
     VkDeviceMemory memory = VK_NULL_HANDLE;
-    VkDeviceSize bufferSize = sizeof(DMesh::Vertex) * testMesh.size();
     try {
-        createBuffer(
-            bufferSize,
-            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            buffer,
-            memory
-        );
+        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, buffer, memory);
     } catch (std::exception err) {
         core->log.err() << err.what();
         return false;
@@ -814,10 +907,10 @@ bool Cat::createVertexBuffer() {
     core->vertexBuffers.push_back(buffer);
     core->vertexBuffersMemory.push_back(memory);
 
-    void* data;
-    vkMapMemory(core->device, memory, 0, bufferSize, 0, &data);
-    memcpy(data, testMesh.data(), bufferSize);
-    vkUnmapMemory(core->device, memory);
+    copyBuffer(stageBuffer, buffer, bufferSize);
+
+    vkDestroyBuffer(core->device, stageBuffer, nullptr);
+    vkFreeMemory(core->device, stageMemory, nullptr);
 
     return true;
 }
@@ -833,6 +926,189 @@ bool Cat::destroyVertexBuffer() {
     }
     core->vertexBuffersMemory.clear();
 
+    return true;
+}
+
+bool Cat::createIndexBuffer() {
+    VkBuffer stageBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory stageMemory = VK_NULL_HANDLE;
+    VkDeviceSize bufferSize = sizeof(DMesh::Index) * testIndex.size();
+    try {
+        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            stageBuffer, stageMemory);
+    } catch (std::exception err) {
+        core->log.err() << err.what();
+        return false;
+    }
+
+    void* data;
+    vkMapMemory(core->device, stageMemory, 0, bufferSize, 0, &data);
+    memcpy(data, testIndex.data(), bufferSize);
+    vkUnmapMemory(core->device, stageMemory);
+
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+
+    try {
+        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, buffer, memory);
+    } catch (std::exception err) {
+        core->log.err() << err.what();
+        return false;
+    }
+
+    core->indexBuffers.push_back(buffer);
+    core->indexBuffersMemory.push_back(memory);
+
+    copyBuffer(stageBuffer, buffer, bufferSize);
+
+    vkDestroyBuffer(core->device, stageBuffer, nullptr);
+    vkFreeMemory(core->device, stageMemory, nullptr);
+
+    return true;
+}
+
+bool Cat::destroyIndexBuffer() {
+    for (auto buffer : core->indexBuffers) {
+        vkDestroyBuffer(core->device, buffer, nullptr);
+    }
+    core->indexBuffers.clear();
+
+    for (auto memory : core->indexBuffersMemory) {
+        vkFreeMemory(core->device, memory, nullptr);
+    }
+    core->indexBuffersMemory.clear();
+
+    return true;
+}
+
+bool Cat::createDescriptorSetLayout() {
+    VkDescriptorSetLayoutBinding basicUBOLayoutBinding{};
+    basicUBOLayoutBinding.binding = 0;
+    basicUBOLayoutBinding.descriptorCount = 1;
+    basicUBOLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    basicUBOLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo setLayoutCreateInfo{};
+    setLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    setLayoutCreateInfo.bindingCount = 1;
+    setLayoutCreateInfo.pBindings = &basicUBOLayoutBinding;
+
+    if (vkCreateDescriptorSetLayout(core->device, &setLayoutCreateInfo, nullptr, &core->descriptorSetLayout) != VK_SUCCESS) {
+        core->log.err() << "Failed to create DescriptorSetLayout.";
+        return false;
+    }
+
+    return true;
+
+    return false;
+}
+
+bool Cat::destroyDescriptorSetLayout() {
+    vkDestroyDescriptorSetLayout(core->device, core->descriptorSetLayout, nullptr);
+    return true;
+}
+
+bool Cat::createUniformBuffers() {
+    VkDeviceSize size = sizeof(Uniform::Toy);
+
+    core->ffUniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+    core->ffUniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+
+    try {
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            createBuffer(size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                core->ffUniformBuffers[i], core->ffUniformBuffersMemory[i]);
+            void* data;
+            vkMapMemory(core->device, core->ffUniformBuffersMemory[i], 0, size, 0, &data);
+            core->ffUniformMapping.push_back(data);
+        }
+    } catch (std::exception err) {
+        core->log.err() << err.what();
+        return false;
+    }
+
+    return true;
+}
+
+bool Cat::cleanupUniformBuffers() {
+    for (auto& bf : core->ffUniformBuffers) {
+        vkDestroyBuffer(core->device, bf, nullptr);
+    }
+    for (auto& mem : core->ffUniformBuffersMemory) {
+        vkUnmapMemory(core->device, mem);
+        vkFreeMemory(core->device, mem, nullptr);
+    }
+    core->ffUniformBuffers.clear();
+    core->ffUniformBuffersMemory.clear();
+    core->ffUniformMapping.clear();
+    return true;
+}
+
+bool Cat::createDescriptorPool() {
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSize.descriptorCount = CG(MAX_FRAMES_IN_FLIGHT);
+
+    VkDescriptorPoolCreateInfo poolCreateInfo{};
+    poolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolCreateInfo.maxSets = CG(MAX_FRAMES_IN_FLIGHT);
+    poolCreateInfo.poolSizeCount = 1;
+    poolCreateInfo.pPoolSizes = &poolSize;
+
+    if (vkCreateDescriptorPool(core->device, &poolCreateInfo, nullptr, &core->descriptorPool) != VK_SUCCESS) {
+        core->log.err() << "Failed to create descriptor pool for uniform buffer.";
+        return false;
+    }
+
+    return true;
+}
+
+bool Cat::destroyDescriptorPool() {
+    vkDestroyDescriptorPool(core->device, core->descriptorPool, nullptr);
+    return true;
+}
+
+bool Cat::createDescriptorSets() {
+    std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, core->descriptorSetLayout);
+    VkDescriptorSetAllocateInfo allocateInfo{};
+    allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocateInfo.descriptorPool = core->descriptorPool;
+    allocateInfo.descriptorSetCount = CG(MAX_FRAMES_IN_FLIGHT);
+    allocateInfo.pSetLayouts = layouts.data();
+
+    core->descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+    if (vkAllocateDescriptorSets(core->device, &allocateInfo, core->descriptorSets.data()) != VK_SUCCESS) {
+        core->log.err() << "Failed to create descriptor sets.";
+        return false;
+    }
+
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        VkDescriptorBufferInfo bufferInfo{};
+        bufferInfo.buffer = core->ffUniformBuffers[i];
+        bufferInfo.offset = 0;
+        bufferInfo.range = sizeof(Uniform::Toy);
+
+        VkWriteDescriptorSet descriptorWrite{};
+        descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptorWrite.dstSet = core->descriptorSets[i];
+        descriptorWrite.dstBinding = 0;
+        descriptorWrite.dstArrayElement = 0;
+        descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        descriptorWrite.descriptorCount = 1;
+        descriptorWrite.pBufferInfo = &bufferInfo;
+        descriptorWrite.pImageInfo = nullptr;
+        descriptorWrite.pTexelBufferView = nullptr;
+        vkUpdateDescriptorSets(core->device, 1, &descriptorWrite, 0, nullptr);
+    }
+
+    return true;
+}
+
+bool Cat::cleanupDescriptorSets() {
+    // Needn't as freeing with cleanning descriptor pool.
     return true;
 }
 
@@ -1062,8 +1338,13 @@ void Cat::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex
     offsets.resize(core->vertexBuffers.size(), 0);
     vkCmdBindVertexBuffers(commandBuffer, 0, CG(core->vertexBuffers.size()),
         core->vertexBuffers.data(), offsets.data());
+    vkCmdBindIndexBuffer(commandBuffer, core->indexBuffers[0], 0, DMesh::TYPE);
 
-    vkCmdDraw(commandBuffer, CG(testMesh.size()), 1, 0, 0);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, core->pipelineLayout, 0, 1, 
+        &core->descriptorSets[currentFrame], 0, nullptr);
+
+    vkCmdDrawIndexed(commandBuffer, CG(testIndex.size()), 1,
+        0, 0, 0);
     vkCmdEndRenderPass(commandBuffer);
 
     if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
@@ -1095,6 +1376,9 @@ void Cat::drawFrame() {
 
     vkResetCommandBuffer(core->commandBuffers[currentFrame], 0);
     recordCommandBuffer(core->commandBuffers[currentFrame], imageIndex);
+
+    updateUniformBuffers();
+
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 

@@ -10,6 +10,7 @@
 #include <set>
 #include <glm/glm.hpp>
 #include <fstream>
+#include <chrono>
 #include "Core.h"
 #include "DMesh.h"
 
@@ -49,6 +50,16 @@ private:
 	COREFUNC(cleanupSyncObjects);
 	COREFUNC(createVertexBuffer);
 	COREFUNC(destroyVertexBuffer);
+	COREFUNC(createIndexBuffer);
+	COREFUNC(destroyIndexBuffer);
+	COREFUNC(createDescriptorSetLayout);
+	COREFUNC(destroyDescriptorSetLayout);
+	COREFUNC(createUniformBuffers);
+	COREFUNC(cleanupUniformBuffers);
+	COREFUNC(createDescriptorPool);
+	COREFUNC(destroyDescriptorPool);
+	COREFUNC(createDescriptorSets);
+	COREFUNC(cleanupDescriptorSets);
 
 	static void addGlfwRequiredExtensions();
 	static void addCatRequiredExtensions();
@@ -69,6 +80,10 @@ private:
 	static void recreateSwapChain();
 	static void cleanupSwapChainRuntime();
 	static uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+	static void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+		VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
+	static void copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size);
+	static void updateUniformBuffers();
 
 public:
 	void registSelf(Core* core);
@@ -90,7 +105,6 @@ private:
 	static VkSwapchainKHR oldSwapChain;
 	static bool frameBufferResized;
 	static std::vector<DMesh::Vertex> testMesh;
-	static void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, 
-		VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
+	static std::vector<uint16_t> testIndex;
 };
 
